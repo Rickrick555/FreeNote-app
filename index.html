@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ホワイトボードアプリ</title>
+    <style>
+        /* リセットと基本設定 */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            height: 100dvh;
+            /* Mobile layout shift prevention */
+            overflow: hidden;
+            background-color: #f0f0f0;
+        }
+
+        /* ツールバー */
+        #toolbar {
+            background: #ffffff;
+            border-bottom: 1px solid #ddd;
+            padding: 8px 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            z-index: 10;
+        }
+
+        .tool-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+            color: #333;
+        }
+
+        select,
+        input[type="range"],
+        button {
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            background: #fff;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #f0f0f0;
+        }
+
+        button:active {
+            background: #e0e0e0;
+        }
+
+        /* カラーパレット用 */
+        .color-palette {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+            margin-right: 4px;
+        }
+
+        .color-btn {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 2px solid #ccc;
+            cursor: pointer;
+            padding: 0;
+            transition: transform 0.1s, border-color 0.1s;
+        }
+
+        .color-btn:hover {
+            transform: scale(1.1);
+        }
+
+        .color-btn.active {
+            border-color: #333;
+            transform: scale(1.1);
+        }
+
+        /* 右寄せの要素用 */
+        .push-right {
+            margin-left: auto;
+        }
+
+        /* メインキャンバス領域 */
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            border-bottom: 1px solid #c0c0c0;
+            /* 境界線 */
+            touch-action: none;
+            /* スクロール防止 */
+            overflow: hidden;
+            perspective: 1000px;
+        }
+
+        /* ページめくりアニメーション用クラス */
+        .page-turn-next {
+            animation: turnNext 0.4s ease-in-out forwards;
+            transform-origin: left center;
+        }
+
+        .page-turn-prev {
+            animation: turnPrev 0.4s ease-in-out forwards;
+            transform-origin: right center;
+        }
+
+        @keyframes turnNext {
+            0% {
+                transform: rotateY(0deg);
+                opacity: 1;
+            }
+
+            50% {
+                transform: rotateY(-90deg);
+                opacity: 0.5;
+            }
+
+            100% {
+                transform: rotateY(0deg);
+                opacity: 1;
+            }
+        }
+
+        @keyframes turnPrev {
+            0% {
+                transform: rotateY(0deg);
+                opacity: 1;
+            }
+
+            50% {
+                transform: rotateY(90deg);
+                opacity: 0.5;
+            }
+
+            100% {
+                transform: rotateY(0deg);
+                opacity: 1;
+            }
+        }
+
+        /* キャンバス要素 */
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+
+        /* draft-canvasはタッチイベントを受け取らないようにする */
+        #draft-canvas {
+            pointer-events: none;
+        }
+
+        /* 誤クリック防止用の物理マージン（空白） */
+        .ad-spacer {
+            height: 16px;
+            background-color: transparent;
+            flex-shrink: 0;
+        }
+
+        /* 広告エリア */
+        #ad-container {
+            height: 90px;
+            background-color: #e0e0e0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-shrink: 0;
+            color: #888;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        /* レスポンシブ (スマホ向け) */
+        @media (max-width: 767px) {
+            #ad-container {
+                height: 50px;
+            }
+
+            #toolbar {
+                padding: 6px;
+                gap: 8px;
+            }
+
+            .tool-group {
+                width: calc(50% - 4px);
+                /* 2列レイアウト */
+                font-size: 12px;
+            }
+
+            .tool-group>label {
+                display: flex;
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .tool-group>label>select,
+            .tool-group>label>input {
+                width: 100%;
+                margin-top: 4px;
+            }
+
+            .push-right {
+                margin-left: 0;
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            .page-controls {
+                width: 100%;
+                justify-content: space-between;
+            }
+        }
+
+        /* --- 背景（紙質）のスタイル設定 --- */
+        .paper-kanji {
+            background-color: #ffffff;
+            background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Crect width='120' height='120' fill='%23ffffff'/%3E%3Cpath d='M60 0 v120 M0 60 h120' stroke='%23b3e0f2' stroke-width='2' stroke-dasharray='6,6'/%3E%3Cpath d='M120 0 L0 0 0 120' fill='none' stroke='%2366c2eb' stroke-width='2'/%3E%3C/svg%3E");
+            background-size: 120px 120px;
+            background-position: top left;
+        }
+
+        .paper-vertical {
+            background-color: #ffffff;
+            background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='40'%3E%3Crect width='80' height='40' fill='%23ffffff'/%3E%3Cpath d='M40 0 v40' stroke='%23b3e0f2' stroke-width='2' stroke-dasharray='6,6'/%3E%3Cpath d='M0 0 v40' fill='none' stroke='%2366c2eb' stroke-width='2'/%3E%3C/svg%3E");
+            background-size: 80px 40px;
+            background-position: top right;
+        }
+
+        .paper-grid {
+            background-color: #ffffff;
+            background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='30'%3E%3Crect width='30' height='30' fill='%23ffffff'/%3E%3Cpath d='M30 0 L0 0 0 30' fill='none' stroke='%2387ceeb' stroke-width='1'/%3E%3C/svg%3E");
+            background-size: 30px 30px;
+            background-position: top left;
+        }
+
+        .paper-horizontal {
+            background-color: #ffffff;
+            background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect width='40' height='40' fill='%23ffffff'/%3E%3Cpath d='M0 40 h40' fill='none' stroke='%2387ceeb' stroke-width='1.5'/%3E%3C/svg%3E");
+            background-size: 40px 40px;
+            background-position: top left;
+        }
+
+        .paper-tictactoe {
+            background-color: #ffffff;
+            background-image: none;
+        }
+
+        .paper-whiteboard {
+            background-color: #ffffff;
+            background-image: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- ツールバー -->
+    <div id="toolbar">
+        <div class="tool-group">
+            <label><span class="i18n" data-ja="ノートの種類:" data-en="Notebook Type:">ノートの種類:</span>
+                <select id="select-paper">
+                    <option value="kanji" data-ja="漢字用罫線" data-en="Kanji Practice">漢字用罫線</option>
+                    <option value="vertical" data-ja="縦罫線" data-en="Vertical Lines">縦罫線</option>
+                    <option value="grid" data-ja="方眼罫線" data-en="Grid Lines">方眼罫線</option>
+                    <option value="horizontal" data-ja="横罫線" data-en="Horizontal Lines">横罫線</option>
+                    <option value="tictactoe" data-ja="マルバツゲーム" data-en="Tic-Tac-Toe">マルバツゲーム</option>
+                    <option value="whiteboard" data-ja="無地(ホワイトボード)" data-en="Blank(Whiteboard)">無地(ホワイトボード)</option>
+                </select>
+            </label>
+        </div>
+
+        <div class="tool-group">
+            <label><span class="i18n" data-ja="罫線の間隔:" data-en="Line Spacing:">罫線の間隔:</span>
+                <input type="range" id="input-grid-spacing" min="0.5" max="5.0" step="0.1" value="1.0"
+                    style="width: 70px;">
+            </label>
+        </div>
+
+        <div class="tool-group">
+            <label><span class="i18n" data-ja="ペンの種類:" data-en="Pen Type:">ペンの種類:</span>
+                <select id="select-brush">
+                    <option value="pencil" data-ja="鉛筆" data-en="Pencil">鉛筆</option>
+                    <option value="fude" data-ja="筆ペン" data-en="Brush Pen">筆ペン</option>
+                    <option value="magic" data-ja="マジック" data-en="Marker">マジック</option>
+                    <option value="ballpoint" data-ja="ボールペン" data-en="Ballpoint Pen">ボールペン</option>
+                    <option value="eraser-partial" data-ja="消しゴム(こする)" data-en="Eraser (Rub)">消しゴム(こする)</option>
+                    <option value="eraser-stroke" data-ja="消しゴム(線ごと)" data-en="Eraser (Stroke)">消しゴム(線ごと)</option>
+                </select>
+            </label>
+        </div>
+
+        <div class="tool-group">
+            <label style="display: flex; align-items: center;"><span class="i18n" data-ja="色:"
+                    data-en="Color:">色:</span>
+                <div class="color-palette" id="color-palette">
+                    <button class="color-btn active" style="background-color: #333333;" data-color="#333333"></button>
+                    <button class="color-btn" style="background-color: #e63946;" data-color="#e63946"></button>
+                    <button class="color-btn" style="background-color: #005f73;" data-color="#005f73"></button>
+                    <button class="color-btn" style="background-color: #2a9d8f;" data-color="#2a9d8f"></button>
+                </div>
+                <input type="color" id="input-color" value="#333333" title="自由な色を選ぶ"
+                    style="width: 32px; height: 32px; padding: 0; border: none; background: transparent; cursor: pointer;">
+            </label>
+        </div>
+
+        <div class="tool-group">
+            <label><span class="i18n" data-ja="線の太さ:" data-en="Thickness:">線の太さ:</span>
+                <input type="range" id="input-thickness" min="1" max="50" value="10">
+            </label>
+        </div>
+
+        <div class="tool-group page-controls push-right">
+            <button id="btn-prev" class="i18n" data-ja="前へ" data-en="Prev">前へ</button>
+            <span id="page-display">1 / 1</span>
+            <button id="btn-next" class="i18n" data-ja="次へ(新規)" data-en="Next(New)">次へ(新規)</button>
+        </div>
+
+        <div class="tool-group push-right">
+            <button id="btn-undo" class="i18n" data-ja="やり直し" data-en="Undo"
+                style="border-color: #f0ad4e;">やり直し</button>
+            <button id="btn-clear" class="i18n" data-ja="全消去" data-en="Clear All"
+                style="color: #d9534f; border-color: #d43f3a;">全消去</button>
+            <button id="btn-save" class="i18n" data-ja="保存(PNG)" data-en="Save(PNG)"
+                style="background-color: #0275d8; color: white; border: none;">保存(PNG)</button>
+        </div>
+
+        <div class="tool-group">
+            <label style="flex-direction: row; align-items: center; justify-content: flex-end;">
+                <select id="select-lang" style="width: auto; margin-top: 0;">
+                    <option value="ja">日本語</option>
+                    <option value="en">English</option>
+                </select>
+            </label>
+        </div>
+    </div>
+
+    <!-- メインキャンバス領域 -->
+    <div id="canvas-container" class="paper-kanji">
+        <!-- 確定された描画を保持するキャンバス -->
+        <canvas id="main-canvas"></canvas>
+        <!-- 現在のストロークを描写する一時キャンバス -->
+        <canvas id="draft-canvas"></canvas>
+    </div>
+
+    <!-- 物理マージン -->
+    <div class="ad-spacer"></div>
+
+    <!-- 広告エリア -->
+    <div id="ad-container">
+        <span>広告エリア (Ad Container)</span>
+    </div>
+
+    <script>
+        // DOM要素の取得
+        const container = document.getElementById('canvas-container');
+        const mainCanvas = document.getElementById('main-canvas');
+        const mainCtx = mainCanvas.getContext('2d', { willReadFrequently: true });
+        const draftCanvas = document.getElementById('draft-canvas');
+        const draftCtx = draftCanvas.getContext('2d');
+
+        const paperSelect = document.getElementById('select-paper');
+        const gridSpacingInput = document.getElementById('input-grid-spacing');
+        const brushSelect = document.getElementById('select-brush');
+        const colorInput = document.getElementById('input-color');
+        const colorBtns = document.querySelectorAll('.color-btn');
+        const thicknessInput = document.getElementById('input-thickness');
+        const pageDisplay = document.getElementById('page-display');
+        const langSelect = document.getElementById('select-lang');
+
+        // 多言語翻訳機能
+        function updateLanguage(lang) {
+            // スパンやボタンの翻訳
+            document.querySelectorAll('.i18n').forEach(el => {
+                if (el.dataset[lang]) {
+                    el.textContent = el.dataset[lang];
+                }
+            });
+            // セレクトボックス内のoptionの翻訳
+            document.querySelectorAll('option[data-ja]').forEach(opt => {
+                if (opt.dataset[lang]) {
+                    opt.textContent = opt.dataset[lang];
+                }
+            });
+        }
+
+        langSelect.addEventListener('change', (e) => updateLanguage(e.target.value));
+
+        // ブラシの種類と設定
+        const brushSettings = {
+            // widthMult: スライダー値への倍率, alpha: 透明度
+            pencil: { widthMult: 0.4, alpha: 0.85 },
+            fude: { widthMult: 1.0, alpha: 1.0 },
+            magic: { widthMult: 1.5, alpha: 0.5 },
+            ballpoint: { widthMult: 0.15, alpha: 0.95 },
+            'eraser-partial': { widthMult: 2.0, alpha: 1.0 },
+            'eraser-stroke': { widthMult: 2.0, alpha: 1.0 }
+        };
+
+        // 状態変数
+        let isDrawing = false;
+        let points = [];
+        let lastTimestamp = 0;
+        let lastFudeWidth = 0;
+        let currentColor = '#333333';
+
+        // 消しゴム(線ごと)用のストローク履歴
+        let strokeHistory = [];
+        let currentStrokes = []; // 現在のページのストローク群
+
+        // Undo履歴用の配列 (ページごとに別管理せず、現在のページに対するUndoの簡易実装)
+        let undoStack = [];
+
+        // 色変更の処理
+        function setColor(newColor) {
+            currentColor = newColor;
+            colorInput.value = newColor;
+            // パレットのハイライトを更新
+            colorBtns.forEach(btn => {
+                if (btn.dataset.color.toLowerCase() === newColor.toLowerCase()) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        }
+
+        colorBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                // デフォルトの送信挙動を防ぐ
+                e.preventDefault();
+                setColor(btn.dataset.color);
+            });
+        });
+
+        colorInput.addEventListener('input', (e) => {
+            setColor(e.target.value);
+        });
+
+        // ページ管理用のImageData配列
+        let pages = [];
+        let currentPageIndex = 0;
+
+        /**
+         * キャンバスのサイズを画面リサイズに合わせて調整する機能
+         */
+        function resizeCanvases() {
+            const rect = container.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return;
+
+            // 現在のImageDataを一時退避
+            let backupData = null;
+            if (mainCanvas.width > 0 && mainCanvas.height > 0) {
+                backupData = mainCtx.getImageData(0, 0, mainCanvas.width, mainCanvas.height);
+            }
+
+            mainCanvas.width = rect.width;
+            mainCanvas.height = rect.height;
+            draftCanvas.width = rect.width;
+            draftCanvas.height = rect.height;
+
+            // サイズ変更後に元のデータを描き戻す（アスペクト比等が変わるとクリップされます）
+            if (backupData) {
+                mainCtx.putImageData(backupData, 0, 0);
+            } else if (pages.length > 0 && pages[currentPageIndex]) {
+                mainCtx.putImageData(pages[currentPageIndex], 0, 0);
+            }
+        }
+
+        // 初期化・リサイズ監視
+        window.addEventListener('resize', resizeCanvases);
+        // 直ちに1回実行
+        resizeCanvases();
+
+        /**
+         * ペン・指のタッチ開始
+         */
+        function handlePointerDown(e) {
+            if (e.target !== mainCanvas && e.target !== draftCanvas) return;
+
+            isDrawing = true;
+            lastTimestamp = e.timeStamp;
+
+            const rect = mainCanvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            let baseThick = Number(thicknessInput.value);
+            let brushType = brushSelect.value;
+
+            // 筆ペンの描き始めを太くして「とめ」をしっかり表現する（1.5倍）
+            lastFudeWidth = brushType === 'fude' ? baseThick * 1.5 : baseThick;
+
+            points = [{ x, y, width: lastFudeWidth, color: currentColor, type: brushType }];
+
+            // 描画開始時に現在の状態をUndoスタックに積む
+            saveUndoState();
+
+            if (brushType === 'eraser-stroke') {
+                eraseStrokeAt(x, y);
+            } else if (brushType === 'eraser-partial') {
+                erasePartialAt(x, y, baseThick * brushSettings['eraser-partial'].widthMult);
+            } else {
+                drawDraftPath();
+            }
+        }
+
+        /**
+         * ペン・指の移動
+         */
+        function handlePointerMove(e) {
+            if (!isDrawing) return;
+
+            const rect = mainCanvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            let brushType = brushSelect.value;
+            let baseThick = Number(thicknessInput.value);
+            let currentWidth = baseThick;
+
+            // 筆ペンの場合：とめ、はねのメリハリを持たせる
+            if (brushType === 'fude') {
+                let lastPoint = points[points.length - 1];
+                let dist = Math.hypot(x - lastPoint.x, y - lastPoint.y);
+                let dt = e.timeStamp - lastTimestamp;
+                let velocity = (dt > 0) ? (dist / dt) : 0;
+
+                // 速度による太さの調整（遅い=太い[最大1.5倍]、速い=細い[最小0.1倍]）
+                let speedFactor = Math.min(1.0, velocity / 2.5); // 0(遅)〜1(速)の割合
+                let targetWidth = baseThick * (1.5 - speedFactor * 1.4);
+                targetWidth = Math.max(baseThick * 0.1, targetWidth);
+
+                // はらう（速い）時は太さの変化を俊敏にし、とめる（遅い）時はじわっと変化させる
+                let smoothWeight = velocity > 1.5 ? 0.35 : 0.15;
+                currentWidth = lastFudeWidth * (1 - smoothWeight) + targetWidth * smoothWeight;
+                lastFudeWidth = currentWidth;
+            }
+
+            lastTimestamp = e.timeStamp;
+            points.push({ x, y, width: currentWidth, color: currentColor, type: brushType });
+
+            if (brushType === 'eraser-stroke') {
+                eraseStrokeAt(x, y);
+            } else if (brushType === 'eraser-partial') {
+                erasePartialAt(x, y, baseThick * brushSettings['eraser-partial'].widthMult);
+            } else {
+                drawDraftPath();
+            }
+        }
+
+        /**
+         * ペン・指のタッチ終了
+         */
+        function handlePointerUp(e) {
+            if (!isDrawing) return;
+            isDrawing = false;
+
+            let brushType = brushSelect.value;
+
+            if (brushType !== 'eraser-stroke' && brushType !== 'eraser-partial') {
+                // 最終ストロークを描写し確定
+                drawDraftPath();
+                mainCtx.drawImage(draftCanvas, 0, 0);
+                draftCtx.clearRect(0, 0, draftCanvas.width, draftCanvas.height);
+
+                // ストロークを記録（線ごと消しゴム用）
+                if (points.length > 0) {
+                    currentStrokes.push([...points]);
+                }
+            }
+
+            // 描画後、現在の状態をページとして保存
+            saveCurrentPage();
+        }
+
+        /**
+         * こする消しゴムの実装
+         */
+        function erasePartialAt(x, y, radius) {
+            mainCtx.save();
+            mainCtx.globalCompositeOperation = 'destination-out';
+            mainCtx.beginPath();
+            mainCtx.arc(x, y, radius / 2, 0, Math.PI * 2, false);
+            mainCtx.fill();
+            mainCtx.restore();
+
+            // こすった部分はストローク管理を破壊するため、便宜上ストローク履歴をクリアするか再構成する必要があるが
+            // ここでは簡易的に共存させる（厳密な両立はキャンバス再描画が必要）
+        }
+
+        /**
+         * 線ごと消しゴムの実装（交差判定）
+         */
+        function eraseStrokeAt(x, y) {
+            const hitRadius = 15; // 当たり判定の広さ
+
+            let hitIndex = -1;
+            for (let i = currentStrokes.length - 1; i >= 0; i--) {
+                const strokePoints = currentStrokes[i];
+                for (const p of strokePoints) {
+                    const dx = p.x - x;
+                    const dy = p.y - y;
+                    if (dx * dx + dy * dy <= hitRadius * hitRadius) {
+                        hitIndex = i;
+                        break;
+                    }
+                }
+                if (hitIndex !== -1) break;
+            }
+
+            if (hitIndex !== -1) {
+                // ストロークを削除し、キャンバス全体を再描画
+                currentStrokes.splice(hitIndex, 1);
+                redrawAllStrokes();
+            }
+        }
+
+        /**
+         * 記録された全ストロークを再描画する（線ごと消しゴム用）
+         */
+        function redrawAllStrokes() {
+            mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+
+            currentStrokes.forEach(stroke => {
+                if (stroke.length === 0) return;
+
+                let type = stroke[0].type;
+                let col = stroke[0].color;
+                let setting = brushSettings[type] || brushSettings['pencil'];
+
+                mainCtx.lineCap = 'round';
+                mainCtx.lineJoin = 'round';
+                mainCtx.strokeStyle = col;
+                mainCtx.fillStyle = col;
+                mainCtx.globalAlpha = setting.alpha;
+
+                if (stroke.length === 1) {
+                    mainCtx.lineWidth = stroke[0].width * setting.widthMult;
+                    mainCtx.beginPath();
+                    mainCtx.arc(stroke[0].x, stroke[0].y, mainCtx.lineWidth / 2, 0, Math.PI * 2);
+                    mainCtx.fill();
+                } else if (type === 'fude') {
+                    drawFudeStroke(mainCtx, stroke);
+                } else {
+                    mainCtx.lineWidth = stroke[0].width * setting.widthMult; // 簡易化
+                    mainCtx.beginPath();
+                    mainCtx.moveTo(stroke[0].x, stroke[0].y);
+                    for (let i = 1; i < stroke.length - 1; i++) {
+                        let p1 = stroke[i];
+                        let p2 = stroke[i + 1];
+                        let xc = (p1.x + p2.x) / 2;
+                        let yc = (p1.y + p2.y) / 2;
+                        mainCtx.quadraticCurveTo(p1.x, p1.y, xc, yc);
+                    }
+                    let lastP = stroke[stroke.length - 1];
+                    mainCtx.lineTo(lastP.x, lastP.y);
+                    mainCtx.stroke();
+                }
+            });
+        }
+
+        /**
+         * 現在のストロークを一時キャンバスに滑らかに描画する
+         */
+        function drawDraftPath() {
+            draftCtx.clearRect(0, 0, draftCanvas.width, draftCanvas.height);
+            if (points.length === 0) return;
+
+            let brushType = brushSelect.value;
+            let setting = brushSettings[brushType];
+            let baseThick = Number(thicknessInput.value);
+
+            draftCtx.lineCap = 'round';
+            draftCtx.lineJoin = 'round';
+            draftCtx.strokeStyle = currentColor;
+            draftCtx.fillStyle = currentColor;
+            draftCtx.globalAlpha = setting.alpha;
+
+            // 1点しかない場合（タップのみ）
+            if (points.length === 1) {
+                draftCtx.lineWidth = setting.widthMult * baseThick;
+                draftCtx.beginPath();
+                draftCtx.arc(points[0].x, points[0].y, draftCtx.lineWidth / 2, 0, Math.PI * 2);
+                draftCtx.fill();
+                return;
+            }
+
+            if (brushType === 'fude') {
+                // 筆ペン：滑らかなベジェ曲線と太さ補間を用いて描画
+                drawFudeStroke(draftCtx, points);
+            } else {
+                // その他のペン：Quadratic Curveを用いて全体を滑らかに描画（一筆書き）
+                draftCtx.lineWidth = setting.widthMult * baseThick;
+                draftCtx.beginPath();
+                draftCtx.moveTo(points[0].x, points[0].y);
+
+                for (let i = 1; i < points.length - 1; i++) {
+                    let p1 = points[i];
+                    let p2 = points[i + 1];
+                    // 中点を制御点とする
+                    let xc = (p1.x + p2.x) / 2;
+                    let yc = (p1.y + p2.y) / 2;
+                    draftCtx.quadraticCurveTo(p1.x, p1.y, xc, yc);
+                }
+
+                let lastParams = points[points.length - 1];
+                draftCtx.lineTo(lastParams.x, lastParams.y);
+                draftCtx.stroke();
+            }
+        }
+
+        /**
+         * 筆ペン（Fude）の滑らかなストロークを描画する関数
+         */
+        function drawFudeStroke(ctx, strokePoints) {
+            if (!strokePoints || strokePoints.length === 0) return;
+            if (strokePoints.length === 1) {
+                ctx.beginPath();
+                ctx.arc(strokePoints[0].x, strokePoints[0].y, strokePoints[0].width / 2, 0, Math.PI * 2);
+                ctx.fill();
+                return;
+            }
+            if (strokePoints.length === 2) {
+                drawInterpolatedLine(ctx, strokePoints[0], strokePoints[1]);
+                return;
+            }
+
+            // 最初のセグメント（p0からp0-p1の中点まで）
+            let p0 = strokePoints[0];
+            let p1 = strokePoints[1];
+            let mid01 = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2, width: (p0.width + p1.width) / 2 };
+            drawInterpolatedLine(ctx, p0, mid01);
+
+            // 中間の曲線（ Quadratic Curve を補間して円を描画 ）
+            for (let i = 1; i < strokePoints.length - 1; i++) {
+                let pCur = strokePoints[i];
+                let pNext = strokePoints[i + 1];
+                let start = { x: (strokePoints[i - 1].x + pCur.x) / 2, y: (strokePoints[i - 1].y + pCur.y) / 2, width: (strokePoints[i - 1].width + pCur.width) / 2 };
+                let end = { x: (pCur.x + pNext.x) / 2, y: (pCur.y + pNext.y) / 2, width: (pCur.width + pNext.width) / 2 };
+
+                let dist = Math.hypot(end.x - start.x, end.y - start.y);
+                let steps = Math.max(1, Math.floor(dist)); // 1pxごとに描画
+
+                for (let j = 0; j <= steps; j++) {
+                    let t = j / steps;
+                    let xt = Math.pow(1 - t, 2) * start.x + 2 * (1 - t) * t * pCur.x + Math.pow(t, 2) * end.x;
+                    let yt = Math.pow(1 - t, 2) * start.y + 2 * (1 - t) * t * pCur.y + Math.pow(t, 2) * end.y;
+                    let wt = Math.pow(1 - t, 2) * start.width + 2 * (1 - t) * t * pCur.width + Math.pow(t, 2) * end.width;
+
+                    ctx.beginPath();
+                    ctx.arc(xt, yt, Math.max(0.5, wt / 2), 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            // 最後のセグメント（最後から2番目の中点からpLastまで）
+            let pLast = strokePoints[strokePoints.length - 1];
+            let pPrev = strokePoints[strokePoints.length - 2];
+            let midLast = { x: (pPrev.x + pLast.x) / 2, y: (pPrev.y + pLast.y) / 2, width: (pPrev.width + pLast.width) / 2 };
+            drawInterpolatedLine(ctx, midLast, pLast);
+        }
+
+        function drawInterpolatedLine(ctx, pStart, pEnd) {
+            let dist = Math.hypot(pEnd.x - pStart.x, pEnd.y - pStart.y);
+            let steps = Math.max(1, Math.floor(dist));
+            for (let j = 0; j <= steps; j++) {
+                let t = j / steps;
+                let xt = pStart.x + (pEnd.x - pStart.x) * t;
+                let yt = pStart.y + (pEnd.y - pStart.y) * t;
+                let wt = pStart.width + (pEnd.width - pStart.width) * t;
+                ctx.beginPath();
+                ctx.arc(xt, yt, Math.max(0.5, wt / 2), 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // イベントリスナーの登録（Pointer Events API）
+        mainCanvas.addEventListener('pointerdown', handlePointerDown);
+        // moveやupもwindowまたはcanvasに紐づけ可能
+        window.addEventListener('pointermove', handlePointerMove, { passive: false });
+        window.addEventListener('pointerup', handlePointerUp);
+        window.addEventListener('pointercancel', handlePointerUp);
+
+        /**
+         * ページ管理機能
+         */
+        function updatePageUI() {
+            let total = Math.max(pages.length, 1);
+            pageDisplay.textContent = `${currentPageIndex + 1} / ${total}`;
+        }
+
+        function saveCurrentPage() {
+            pages[currentPageIndex] = {
+                image: mainCtx.getImageData(0, 0, mainCanvas.width, mainCanvas.height),
+                strokes: JSON.parse(JSON.stringify(currentStrokes)) // ディープコピー
+            };
+            updatePageUI();
+        }
+
+        function restorePageData(pageData) {
+            if (!pageData) return;
+            mainCtx.putImageData(pageData.image, 0, 0);
+            currentStrokes = JSON.parse(JSON.stringify(pageData.strokes || []));
+        }
+
+        // Undo(やり直し)関連
+        function saveUndoState() {
+            undoStack.push({
+                image: mainCtx.getImageData(0, 0, mainCanvas.width, mainCanvas.height),
+                strokes: JSON.parse(JSON.stringify(currentStrokes))
+            });
+            if (undoStack.length > 20) undoStack.shift(); // 履歴最大20件制限
+        }
+
+        document.getElementById('btn-undo').addEventListener('click', () => {
+            if (undoStack.length > 0) {
+                let prevState = undoStack.pop();
+                restorePageData(prevState);
+                saveCurrentPage(); // undo直後の状態もページ保存へ反映
+            }
+        });
+
+        // ページ移動アニメーションの適用と描画リセット
+        function applyPageTurn(directionStr) {
+            container.classList.remove('page-turn-next', 'page-turn-prev');
+            // リフロー強制
+            void container.offsetWidth;
+            container.classList.add(`page-turn-${directionStr}`);
+
+            // アニメーションの中間点でキャンバスを書き換える
+            setTimeout(() => {
+                restorePageData(pages[currentPageIndex]);
+            }, 200);
+
+            // アニメーション終了後にクラスを削除
+            setTimeout(() => {
+                container.classList.remove(`page-turn-${directionStr}`);
+            }, 400);
+        }
+
+        // 次のページへ (存在しない場合は新規作成)
+        document.getElementById('btn-next').addEventListener('click', () => {
+            saveCurrentPage(); // 遷移前に現在の状態を保存
+            undoStack = []; // ページ遷移でUndoクリア
+            if (currentPageIndex < pages.length - 1) {
+                // 既存の次ページ
+                currentPageIndex++;
+            } else {
+                // 新規ページ追加
+                mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+                currentStrokes = [];
+                currentPageIndex++;
+                saveCurrentPage();
+            }
+            applyPageTurn('next');
+            updatePageUI();
+        });
+
+        // 前のページへ
+        document.getElementById('btn-prev').addEventListener('click', () => {
+            if (currentPageIndex > 0) {
+                saveCurrentPage(); // 遷移前に現在の状態を保存
+                undoStack = [];
+                currentPageIndex--;
+                applyPageTurn('prev');
+                updatePageUI();
+            }
+        });
+
+        // 全消去
+        document.getElementById('btn-clear').addEventListener('click', () => {
+            const lang = langSelect.value;
+            const confirmMsg = lang === 'en' ? 'Clear the current page?' : '現在のページを全消去しますか？';
+            if (confirm(confirmMsg)) {
+                saveUndoState();
+                mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+                currentStrokes = [];
+                saveCurrentPage();
+            }
+        });
+
+        /**
+         * ダウンロード機能（PNG保存）
+         */
+        document.getElementById('btn-save').addEventListener('click', () => {
+            // 背景も含めてエクスポートするための一時キャンバスを生成
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = mainCanvas.width;
+            exportCanvas.height = mainCanvas.height;
+            const ctx = exportCanvas.getContext('2d');
+
+            const currentPaper = paperSelect.value;
+
+            // 背景のベース色描画
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+            const scale = Number(gridSpacingInput.value);
+
+            if (currentPaper === 'kanji') {
+                ctx.strokeStyle = '#b3e0f2';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([6, 6]);
+                for (let x = 60 * scale; x < exportCanvas.width; x += 120 * scale) {
+                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, exportCanvas.height); ctx.stroke();
+                }
+                for (let y = 60 * scale; y < exportCanvas.height; y += 120 * scale) {
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(exportCanvas.width, y); ctx.stroke();
+                }
+                ctx.strokeStyle = '#66c2eb';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([]);
+                for (let x = 0; x < exportCanvas.width; x += 120 * scale) {
+                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, exportCanvas.height); ctx.stroke();
+                }
+                for (let y = 0; y < exportCanvas.height; y += 120 * scale) {
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(exportCanvas.width, y); ctx.stroke();
+                }
+            } else if (currentPaper === 'vertical') {
+                ctx.strokeStyle = '#b3e0f2';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([6, 6]);
+                for (let x = exportCanvas.width - (40 * scale); x > 0; x -= 80 * scale) {
+                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, exportCanvas.height); ctx.stroke();
+                }
+                ctx.strokeStyle = '#66c2eb';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([]);
+                for (let x = exportCanvas.width; x > 0; x -= 80 * scale) {
+                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, exportCanvas.height); ctx.stroke();
+                }
+            } else if (currentPaper === 'grid') {
+                ctx.strokeStyle = '#87ceeb';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([]);
+                for (let x = 0; x < exportCanvas.width; x += 30 * scale) {
+                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, exportCanvas.height); ctx.stroke();
+                }
+                for (let y = 0; y < exportCanvas.height; y += 30 * scale) {
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(exportCanvas.width, y); ctx.stroke();
+                }
+            } else if (currentPaper === 'horizontal') {
+                ctx.strokeStyle = '#87ceeb';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([]);
+                for (let y = 40 * scale; y < exportCanvas.height; y += 40 * scale) {
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(exportCanvas.width, y); ctx.stroke();
+                }
+            } else if (currentPaper === 'tictactoe') {
+                // 既存の「線の太さ」スライダーの値を枠線にも適用
+                const tttThickness = Number(document.getElementById('input-thickness').value);
+                ctx.strokeStyle = '#222222';
+                ctx.lineWidth = tttThickness * scale;
+                ctx.setLineDash([]);
+                ctx.lineCap = 'round';
+
+                let boardSize = 150 * scale;
+                let offsetX = (exportCanvas.width - boardSize) / 2;
+                let offsetY = (exportCanvas.height - boardSize) / 2;
+
+                ctx.save();
+                ctx.translate(offsetX, offsetY);
+                // 横線1
+                ctx.beginPath(); ctx.moveTo(10 * scale, 50 * scale); ctx.quadraticCurveTo(75 * scale, 52 * scale, 140 * scale, 48 * scale); ctx.stroke();
+                // 横線2
+                ctx.beginPath(); ctx.moveTo(10 * scale, 100 * scale); ctx.quadraticCurveTo(75 * scale, 98 * scale, 140 * scale, 102 * scale); ctx.stroke();
+                // 縦線1
+                ctx.beginPath(); ctx.moveTo(50 * scale, 10 * scale); ctx.quadraticCurveTo(48 * scale, 75 * scale, 52 * scale, 140 * scale); ctx.stroke();
+                // 縦線2
+                ctx.beginPath(); ctx.moveTo(100 * scale, 10 * scale); ctx.quadraticCurveTo(102 * scale, 75 * scale, 98 * scale, 140 * scale); ctx.stroke();
+                ctx.restore();
+            }
+
+            // 描画した線の合成
+            ctx.drawImage(mainCanvas, 0, 0);
+
+            // ダウンロード実行
+            const dataURL = exportCanvas.toDataURL('image/png');
+            const a = document.createElement('a');
+            a.href = dataURL;
+            // ファイル名に日時を含める
+            a.download = `whiteboard_${new Date().getTime()}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        });
+
+        /**
+         * リアルタイム背景更新
+         */
+        function updatePaperBackground() {
+            const type = paperSelect.value;
+            const scale = Number(gridSpacingInput.value);
+            // 既存の「線の太さ」スライダーの値を枠線にも適用
+            const tttThickness = Number(thicknessInput.value);
+            container.className = `paper-${type}`;
+
+            // 用紙タイプによって表示UIとスライダー最大値を変更
+            if (type === 'grid' || type === 'horizontal') {
+                gridSpacingInput.max = "4.0";
+            } else if (type === 'tictactoe') {
+                gridSpacingInput.max = "10.0";
+            } else {
+                gridSpacingInput.max = "2.0";
+                if (Number(gridSpacingInput.value) > 2.0) {
+                    gridSpacingInput.value = "2.0";
+                }
+            }
+
+            let svg = '';
+            let size = '';
+            let pos = '';
+
+            if (type === 'kanji') {
+                svg = `url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${120 * scale}' height='${120 * scale}'%3E%3Crect width='${120 * scale}' height='${120 * scale}' fill='%23ffffff'/%3E%3Cpath d='M${60 * scale} 0 v${120 * scale} M0 ${60 * scale} h${120 * scale}' stroke='%23b3e0f2' stroke-width='1.5' stroke-dasharray='6,6'/%3E%3Cpath d='M${120 * scale} 0 L0 0 0 ${120 * scale}' fill='none' stroke='%2366c2eb' stroke-width='2'/%3E%3C/svg%3E")`;
+                size = `${120 * scale}px ${120 * scale}px`;
+                pos = 'top left';
+            } else if (type === 'vertical') {
+                svg = `url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${80 * scale}' height='${40 * scale}'%3E%3Crect width='${80 * scale}' height='${40 * scale}' fill='%23ffffff'/%3E%3Cpath d='M${40 * scale} 0 v${40 * scale}' stroke='%23b3e0f2' stroke-width='1.5' stroke-dasharray='6,6'/%3E%3Cpath d='M0 0 v${40 * scale}' fill='none' stroke='%2366c2eb' stroke-width='2'/%3E%3C/svg%3E")`;
+                size = `${80 * scale}px ${40 * scale}px`;
+                pos = 'top right';
+            } else if (type === 'grid') {
+                svg = `url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${30 * scale}' height='${30 * scale}'%3E%3Crect width='${30 * scale}' height='${30 * scale}' fill='%23ffffff'/%3E%3Cpath d='M${30 * scale} 0 L0 0 0 ${30 * scale}' fill='none' stroke='%2387ceeb' stroke-width='1'/%3E%3C/svg%3E")`;
+                size = `${30 * scale}px ${30 * scale}px`;
+                pos = 'top left';
+            } else if (type === 'horizontal') {
+                svg = `url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${40 * scale}' height='${40 * scale}'%3E%3Crect width='${40 * scale}' height='${40 * scale}' fill='%23ffffff'/%3E%3Cpath d='M0 ${40 * scale} h${40 * scale}' fill='none' stroke='%2387ceeb' stroke-width='1.5'/%3E%3C/svg%3E")`;
+                size = `${40 * scale}px ${40 * scale}px`;
+                pos = 'top left';
+            } else if (type === 'tictactoe') {
+                let boardSize = 150 * scale;
+                let strokeW = tttThickness * scale;
+                svg = `url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${boardSize} ${boardSize}' width='${boardSize}' height='${boardSize}'%3E%3Cpath d='M${10 * scale} ${50 * scale} Q${75 * scale} ${52 * scale} ${140 * scale} ${48 * scale} M${10 * scale} ${100 * scale} Q${75 * scale} ${98 * scale} ${140 * scale} ${102 * scale} M${50 * scale} ${10 * scale} Q${48 * scale} ${75 * scale} ${52 * scale} ${140 * scale} M${100 * scale} ${10 * scale} Q${102 * scale} ${75 * scale} ${98 * scale} ${140 * scale}' fill='none' stroke='%23222222' stroke-width='${strokeW}' stroke-linecap='round'/%3E%3C/svg%3E")`;
+                size = `${boardSize}px ${boardSize}px`;
+                pos = 'center center';
+            } else {
+                svg = 'none';
+                size = 'auto';
+                pos = '0% 0%';
+            }
+
+            container.style.backgroundImage = svg;
+            container.style.backgroundSize = size;
+            container.style.backgroundPosition = pos;
+            container.style.backgroundRepeat = type === 'tictactoe' ? 'no-repeat' : 'repeat';
+        }
+
+        paperSelect.addEventListener('change', updatePaperBackground);
+        gridSpacingInput.addEventListener('input', updatePaperBackground);
+        thicknessInput.addEventListener('input', updatePaperBackground); // ペンの太さ変更時にも背景を再描画
+
+        // 初回ロード時に適用
+        updatePaperBackground();
+
+        // 初回起動時のページ状態保存
+        setTimeout(() => {
+            currentStrokes = [];
+            saveCurrentPage();
+        }, 100);
+
+    </script>
+</body>
+
+</html>
